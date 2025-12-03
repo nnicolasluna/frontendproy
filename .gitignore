@@ -1,0 +1,20 @@
+# Archivos generados
+archivos_descargados/
+test_downloads/
+*.pyc
+__pycache__/
+
+# Environment
+.env
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
