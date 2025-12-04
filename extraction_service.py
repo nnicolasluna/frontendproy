@@ -85,29 +85,89 @@ class AndroidFileExtractor:
     
     def _buscar_archivos_recursivo(self, ruta_base, extensiones_validas):
         """
-        Buscar archivos recursivamente en un directorio
+        Buscar archivos recursivamente en un directorio obteniendo detalles
         
         Args:
             ruta_base: Ruta base para buscar
             extensiones_validas: Lista de extensiones a buscar
         """
         try:
-            contenido = self.device.shell(f'ls -p "{ruta_base}"').splitlines()
+            # Intentar primero con ls -l para obtener detalles
+            cmd = f'ls -l "{ruta_base}"'
+            contenido = self.device.shell(cmd).splitlines()
             
+            # Verificar si ls -l funcionó (si hay contenido y parece tener formato largo)
+            usar_ls_simple = True
+            if contenido:
+                # Verificar si alguna línea parece tener formato largo (al menos 5 columnas)
+                for linea in contenido:
+                    if len(linea.split()) >= 5:
+                        usar_ls_simple = False
+                        break
+            
+            if usar_ls_simple:
+                # Fallback a ls -p si ls -l no dio resultados útiles
+                self._buscar_archivos_simple(ruta_base, extensiones_validas)
+                return
+
             for linea in contenido:
-                elementos = linea.split()
-                for elemento in elementos:
-                    ruta_completa = os.path.join(ruta_base, elemento).replace("\\", "/")
+                partes = linea.split()
+                if len(partes) < 8: 
+                    continue
                     
-                    # Si es un directorio, buscar recursivamente
-                    if elemento.endswith("/"):
+                # Parsing de ls -l (simplificado)
+                permisos = partes[0]
+                tamano = partes[4]
+                fecha = partes[5]
+                hora = partes[6]
+                nombre = " ".join(partes[7:])
+                
+                ruta_completa = os.path.join(ruta_base, nombre).replace("\\", "/")
+                
+                if permisos.startswith('d'):
+                    if nombre not in ['.', '..']:
                         self._buscar_archivos_recursivo(ruta_completa, extensiones_validas)
-                    # Si es un archivo con extensión válida
-                    elif any(elemento.lower().endswith(ext) for ext in extensiones_validas):
-                        self.archivos_encontrados.append(ruta_completa)
+                
+                elif permisos.startswith('-'):
+                    if any(nombre.lower().endswith(ext) for ext in extensiones_validas):
+                        try:
+                            tamano_bytes = int(tamano)
+                        except:
+                            tamano_bytes = 0
+                            
+                        self.archivos_encontrados.append({
+                            "ruta": ruta_completa,
+                            "nombre": nombre,
+                            "tamano": tamano_bytes,
+                            "fecha": f"{fecha} {hora}",
+                            "tipo": os.path.splitext(nombre)[1].lower()
+                        })
                         
         except Exception as e:
-            print(f"⚠️ No se pudo acceder a {ruta_base}: {e}")
+            print(f"⚠️ Error en ls -l para {ruta_base}: {e}. Intentando fallback...")
+            try:
+                self._buscar_archivos_simple(ruta_base, extensiones_validas)
+            except Exception as e2:
+                print(f"⚠️ Falló también el fallback para {ruta_base}: {e2}")
+
+    def _buscar_archivos_simple(self, ruta_base, extensiones_validas):
+        """Método fallback usando ls -p (solo nombres)"""
+        contenido = self.device.shell(f'ls -p "{ruta_base}"').splitlines()
+        for linea in contenido:
+            elementos = linea.split()
+            for elemento in elementos:
+                ruta_completa = os.path.join(ruta_base, elemento).replace("\\", "/")
+                if elemento.endswith("/"):
+                    self._buscar_archivos_recursivo(ruta_completa, extensiones_validas)
+                elif any(elemento.lower().endswith(ext) for ext in extensiones_validas):
+                    # Crear objeto con metadatos dummy
+                    self.archivos_encontrados.append({
+                        "ruta": ruta_completa,
+                        "nombre": elemento,
+                        "tamano": 0,
+                        "fecha": "",
+                        "tipo": os.path.splitext(elemento)[1].lower()
+                    })
     
     def escanear_archivos(self, rutas_personalizadas=None, categorias_filtro=None):
         """
@@ -140,8 +200,17 @@ class AndroidFileExtractor:
         # Crear resumen por categoría
         resumen_categorias = {}
         for categoria, exts in self.EXTENSIONES.items():
-            cantidad = sum(1 for archivo in self.archivos_encontrados 
-                          if any(archivo.lower().endswith(ext) for ext in exts))
+            cantidad = 0
+            for archivo in self.archivos_encontrados:
+                # Manejar tanto formato antiguo (string) como nuevo (dict)
+                if isinstance(archivo, dict):
+                    nombre = archivo['nombre']
+                else:
+                    nombre = os.path.basename(archivo)
+                    
+                if any(nombre.lower().endswith(ext) for ext in exts):
+                    cantidad += 1
+            
             if cantidad > 0:
                 resumen_categorias[categoria] = cantidad
         
@@ -185,8 +254,14 @@ class AndroidFileExtractor:
         print("Iniciando descarga...")
         print(f"{'='*50}\n")
         
-        for i, ruta_archivo in enumerate(self.archivos_encontrados, 1):
+        for i, item in enumerate(self.archivos_encontrados, 1):
             try:
+                # Manejar tanto formato antiguo (string) como nuevo (dict)
+                if isinstance(item, dict):
+                    ruta_archivo = item['ruta']
+                else:
+                    ruta_archivo = item
+                    
                 nombre_archivo = os.path.basename(ruta_archivo)
                 destino = os.path.join(self.carpeta_destino, nombre_archivo)
                 

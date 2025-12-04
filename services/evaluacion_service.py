@@ -84,16 +84,24 @@ class EvaluacionService:
         elements.append(Paragraph(f"Archivos Asociados ({len(evaluacion.archivos)})", styles['Heading2']))
         
         if evaluacion.archivos:
-            data_archivos = [["Nombre", "Tipo", "Tamaño (Bytes)", "Ruta"]]
+            data_archivos = [["Nombre", "Tipo", "Tamaño", "Metadata"]]
             for archivo in evaluacion.archivos:
+                # Formatear metadata
+                metadata_str = ""
+                if archivo.metadata_archivo:
+                    items = []
+                    for k, v in archivo.metadata_archivo.items():
+                        items.append(f"<b>{k}:</b> {v}")
+                    metadata_str = "<br/>".join(items)
+                
                 data_archivos.append([
                     Paragraph(archivo.nombre_original, styles['Normal']), # Wrap long names
                     archivo.tipo_mime or "N/A",
-                    str(archivo.tamano_bytes),
-                    Paragraph(archivo.ruta_almacenamiento, styles['BodyText']) # Wrap long paths
+                    f"{archivo.tamano_bytes / 1024:.2f} KB", # Convert to KB
+                    Paragraph(metadata_str, styles['Normal']) # Wrap metadata
                 ])
             
-            t_archivos = Table(data_archivos, colWidths=[150, 100, 80, 200])
+            t_archivos = Table(data_archivos, colWidths=[150, 80, 70, 230])
             t_archivos.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
