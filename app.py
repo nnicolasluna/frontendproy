@@ -6,6 +6,7 @@ from config import Config
 from database import init_db
 from services.evaluacion_service import EvaluacionService
 from services.archivo_service import ArchivoService
+from services.llamada_service import LlamadaService
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -71,12 +72,23 @@ def extract_files():
                     except Exception as e:
                         print(f"Error procesando metadatos de {nombre_archivo}: {e}")
         
+        # 5. Extraer y guardar llamadas del dispositivo
+        llamadas_guardadas = []
+        try:
+            llamadas_extraidas = extractor.extraer_llamadas()
+            if llamadas_extraidas:
+                llamadas_db = LlamadaService.guardar_llamadas(llamadas_extraidas, evaluacion.id)
+                llamadas_guardadas = [l.to_dict() for l in llamadas_db]
+        except Exception as e:
+            print(f"Error extrayendo llamadas: {e}")
+        
         return jsonify({
             'success': True,
             'data': {
                 'evaluacion': evaluacion.to_dict(),
                 'extraccion': resultado_extraccion,
-                'archivos_procesados': len(archivos_procesados)
+                'archivos_procesados': len(archivos_procesados),
+                'llamadas_extraidas': len(llamadas_guardadas)
             }
         }), 200
         
@@ -110,7 +122,8 @@ def obtener_evaluacion(id):
             'success': True,
             'data': {
                 **evaluacion.to_dict(),
-                'archivos': [a.to_dict() for a in evaluacion.archivos]
+                'archivos': [a.to_dict() for a in evaluacion.archivos],
+                'llamadas': [l.to_dict() for l in evaluacion.llamadas]
             }
         }), 200
     except Exception as e:

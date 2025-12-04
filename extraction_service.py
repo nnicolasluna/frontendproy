@@ -292,3 +292,117 @@ class AndroidFileExtractor:
             "resumen_categorias": resultado_scan["resumen_categorias"],
             "carpeta_destino": os.path.abspath(self.carpeta_destino)
         }
+
+    def _run_adb_command(self, cmd):
+        """Ejecuta comando adb y devuelve stdout en UTF-8; lanza excepción si falla."""
+        import subprocess
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True
+            )
+            return proc.stdout
+        except FileNotFoundError:
+            raise RuntimeError("No se encontró 'adb' en PATH. Instala adb o añade al PATH.")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Error ejecutando adb: {e.stderr.strip() or e.stdout.strip()}")
+
+    def _parse_content_query_output(self, output):
+        """
+        Parsea la salida de `adb shell content query` en forma robusta.
+        Estrategia: dividimos en tokens; cada token que contiene '=' inicia un par clave=valor.
+        Si un token no contiene '=', se concatena al valor anterior (gestiona espacios en valores).
+        """
+        llamadas = []
+        for line in output.splitlines():
+            line = line.strip()
+            if not line or not line.startswith("Row:"):
+                continue
+            tokens = line.split()
+            # saltamos "Row:" y el número de fila si existe
+            tokens = tokens[2:] if len(tokens) >= 2 else tokens[1:]
+            fila = {}
+            current_key = None
+            for tok in tokens:
+                if '=' in tok:
+                    key, val = tok.split('=', 1)
+                    fila[key] = val
+                    current_key = key
+                else:
+                    # token sin '=': es parte del valor anterior (espacios dentro de valor)
+                    if current_key is not None:
+                        fila[current_key] = fila[current_key] + " " + tok
+                    else:
+                        continue
+            llamadas.append(fila)
+        return llamadas
+
+    def _convert_dates(self, llamadas):
+        """Convierte 'date' en ms a datetime en TZ local (Bolivia UTC-4)."""
+        from datetime import datetime, timezone, timedelta
+        TZ = timezone(timedelta(hours=-4))
+        
+        for f in llamadas:
+            if 'date' in f:
+                try:
+                    ts_ms = int(f['date'])
+                    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(TZ)
+                    f['date_datetime'] = dt.replace(tzinfo=None)  # datetime sin tz para BD
+                    f['date_readable'] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    f['date_datetime'] = None
+                    f['date_readable'] = f.get('date')
+        return llamadas
+
+    def extraer_llamadas(self):
+        """
+        Extrae el registro de llamadas del dispositivo Android usando subprocess.
+        
+        Returns:
+            Lista de diccionarios con información formateada de cada llamada
+        """
+        # Mapeo de tipos de llamada
+        tipos_llamada = {
+            '1': 'entrante',
+            '2': 'saliente',
+            '3': 'perdida',
+            '4': 'buzon_voz',
+            '5': 'rechazada',
+            '6': 'bloqueada'
+        }
+        
+        try:
+            cmd = ["adb", "shell", "content", "query", "--uri", "content://call_log/calls"]
+            out = self._run_adb_command(cmd)
+            llamadas_raw = self._parse_content_query_output(out)
+            llamadas_raw = self._convert_dates(llamadas_raw)
+            
+            # Formatear para el servicio
+            llamadas_formateadas = []
+            for l in llamadas_raw:
+                llamada = {
+                    'numero': l.get('number'),
+                    'nombre_contacto': l.get('name') or l.get('cached_name') or l.get('display_name'),
+                    'fecha': l.get('date_datetime'),
+                    'duracion_segundos': int(l.get('duration', 0)) if l.get('duration') else 0,
+                    'tipo': tipos_llamada.get(l.get('type'), 'desconocido'),
+                    'metadata': {
+                        'date_readable': l.get('date_readable'),
+                        'raw_type': l.get('type'),
+                        'geocoded_location': l.get('geocoded_location'),
+                        'presentation': l.get('presentation')
+                    }
+                }
+                if llamada['numero'] or llamada['nombre_contacto']:
+                    llamadas_formateadas.append(llamada)
+            
+            print(f"📞 Se encontraron {len(llamadas_formateadas)} llamadas")
+            return llamadas_formateadas
+            
+        except Exception as e:
+            print(f"❌ Error al extraer llamadas: {e}")
+            return []

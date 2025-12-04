@@ -1,4 +1,4 @@
-from models import Evaluacion, Archivo
+from models import Evaluacion, Archivo, Llamada
 from database import db
 from datetime import datetime
 import io
@@ -115,6 +115,40 @@ class EvaluacionService:
             elements.append(t_archivos)
         else:
             elements.append(Paragraph("No hay archivos asociados.", styles['Normal']))
+        
+        elements.append(Spacer(1, 20))
+
+        # Llamadas
+        elements.append(Paragraph(f"Registro de Llamadas ({len(evaluacion.llamadas)})", styles['Heading2']))
+        
+        if evaluacion.llamadas:
+            data_llamadas = [["Número", "Contacto", "Fecha", "Duración", "Tipo"]]
+            for llamada in evaluacion.llamadas:
+                duracion_min = llamada.duracion_segundos // 60 if llamada.duracion_segundos else 0
+                duracion_seg = llamada.duracion_segundos % 60 if llamada.duracion_segundos else 0
+                
+                data_llamadas.append([
+                    llamada.numero or "Desconocido",
+                    llamada.nombre_contacto or "Sin nombre",
+                    llamada.fecha.strftime('%Y-%m-%d %H:%M') if llamada.fecha else "N/A",
+                    f"{duracion_min}m {duracion_seg}s",
+                    llamada.tipo or "N/A"
+                ])
+            
+            t_llamadas = Table(data_llamadas, colWidths=[100, 120, 100, 70, 80])
+            t_llamadas.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            elements.append(t_llamadas)
+        else:
+            elements.append(Paragraph("No hay llamadas registradas.", styles['Normal']))
 
         doc.build(elements)
         buffer.seek(0)

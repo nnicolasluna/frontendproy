@@ -19,6 +19,9 @@ class Evaluacion(db.Model):
     
     # Relación con archivos
     archivos = db.relationship('Archivo', backref='evaluacion', lazy=True, cascade="all, delete-orphan")
+    
+    # Relación con llamadas
+    llamadas = db.relationship('Llamada', backref='evaluacion', lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -31,7 +34,8 @@ class Evaluacion(db.Model):
                 'version_android': self.dispositivo_version_android
             },
             'metadata': self.metadata_evaluacion,
-            'cantidad_archivos': len(self.archivos)
+            'cantidad_archivos': len(self.archivos),
+            'cantidad_llamadas': len(self.llamadas)
         }
 
 class Archivo(db.Model):
@@ -58,4 +62,32 @@ class Archivo(db.Model):
             'metadata': self.metadata_archivo,
             'fecha_subida': self.fecha_subida.isoformat(),
             'ruta': self.ruta_almacenamiento
+        }
+
+class Llamada(db.Model):
+    __tablename__ = 'llamadas'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    numero = db.Column(db.String(50))
+    nombre_contacto = db.Column(db.String(255))
+    fecha = db.Column(db.DateTime)
+    duracion_segundos = db.Column(db.Integer, default=0)
+    tipo = db.Column(db.String(20))  # 'entrante', 'saliente', 'perdida', 'rechazada', 'bloqueada'
+    
+    # Metadatos adicionales
+    metadata_llamada = db.Column(JSONB, default={})
+    
+    fecha_extraccion = db.Column(db.DateTime, default=datetime.now)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey('evaluaciones.id'), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'numero': self.numero,
+            'nombre_contacto': self.nombre_contacto,
+            'fecha': self.fecha.isoformat() if self.fecha else None,
+            'duracion_segundos': self.duracion_segundos,
+            'tipo': self.tipo,
+            'metadata': self.metadata_llamada,
+            'fecha_extraccion': self.fecha_extraccion.isoformat()
         }
