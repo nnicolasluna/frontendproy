@@ -165,6 +165,51 @@ def device_info():
             'error': str(e)
         }), 500
 
+@app.route('/api/extract-calls', methods=['POST'])
+def extract_calls_only():
+    """
+    Endpoint para extraer solo llamadas sin descargar archivos.
+    """
+    try:
+        data = request.get_json() if request.is_json else {}
+        metadata_extra = data.get('metadata', {})
+        
+        # 1. Obtener info del dispositivo
+        extractor = AndroidFileExtractor()
+        try:
+            info_dispositivo = extractor.obtener_info_dispositivo()
+        except Exception as e:
+            return jsonify({'success': False, 'error': f"Error al conectar dispositivo: {str(e)}"}), 500
+            
+        # 2. Crear Evaluación en BD
+        evaluacion = EvaluacionService.crear_evaluacion(info_dispositivo, metadata_extra)
+        
+        # 3. Extraer y guardar llamadas del dispositivo
+        llamadas_guardadas = []
+        try:
+            llamadas_extraidas = extractor.extraer_llamadas()
+            if llamadas_extraidas:
+                llamadas_db = LlamadaService.guardar_llamadas(llamadas_extraidas, evaluacion.id)
+                llamadas_guardadas = [l.to_dict() for l in llamadas_db]
+        except Exception as e:
+            print(f"Error extrayendo llamadas: {e}")
+            return jsonify({'success': False, 'error': f"Error extrayendo llamadas: {str(e)}"}), 500
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'evaluacion': evaluacion.to_dict(),
+                'llamadas_extraidas': len(llamadas_guardadas),
+                'llamadas': llamadas_guardadas
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/scan', methods=['POST'])
 def scan_files():
     """Escanear archivos sin descargarlos"""

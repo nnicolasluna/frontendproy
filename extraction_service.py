@@ -311,6 +311,15 @@ class AndroidFileExtractor:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Error ejecutando adb: {e.stderr.strip() or e.stdout.strip()}")
 
+    def _safe_int(self, value):
+        """Convierte un valor a int eliminando comas y espacios."""
+        try:
+            if value is None:
+                return 0
+            return int(str(value).replace(',', '').strip())
+        except (ValueError, TypeError):
+            return 0
+
     def _parse_content_query_output(self, output):
         """
         Parsea la salida de `adb shell content query` en forma robusta.
@@ -349,7 +358,7 @@ class AndroidFileExtractor:
         for f in llamadas:
             if 'date' in f:
                 try:
-                    ts_ms = int(f['date'])
+                    ts_ms = self._safe_int(f['date'])
                     dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(TZ)
                     f['date_datetime'] = dt.replace(tzinfo=None)  # datetime sin tz para BD
                     f['date_readable'] = dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -388,8 +397,8 @@ class AndroidFileExtractor:
                     'numero': l.get('number'),
                     'nombre_contacto': l.get('name') or l.get('cached_name') or l.get('display_name'),
                     'fecha': l.get('date_datetime'),
-                    'duracion_segundos': int(l.get('duration', 0)) if l.get('duration') else 0,
-                    'tipo': tipos_llamada.get(l.get('type'), 'desconocido'),
+                    'duracion_segundos': self._safe_int(l.get('duration', 0)),
+                    'tipo': tipos_llamada.get(str(l.get('type', '')).replace(',', '').strip(), 'desconocido'),
                     'metadata': {
                         'date_readable': l.get('date_readable'),
                         'raw_type': l.get('type'),
