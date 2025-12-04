@@ -147,6 +147,39 @@ def descargar_pdf_evaluacion(id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/files/<int:file_id>', methods=['GET'])
+def serve_file(file_id):
+    """Servir un archivo por su ID para previsualización"""
+    try:
+        from flask import send_file
+        from models import Archivo
+        
+        archivo = Archivo.query.get(file_id)
+        if not archivo:
+            return jsonify({'success': False, 'error': 'Archivo no encontrado'}), 404
+        
+        # La ruta almacenada es relativa a la carpeta de descargas
+        ruta_completa = archivo.ruta_almacenamiento
+        
+        # Si la ruta no es absoluta, construirla
+        if not os.path.isabs(ruta_completa):
+            ruta_completa = os.path.join(Config.UPLOAD_FOLDER, ruta_completa)
+        
+        if not os.path.exists(ruta_completa):
+            return jsonify({'success': False, 'error': 'Archivo no existe en el sistema'}), 404
+        
+        # Determinar mimetype
+        mimetype = archivo.tipo_mime or 'application/octet-stream'
+        
+        return send_file(
+            ruta_completa,
+            mimetype=mimetype,
+            as_attachment=False,
+            download_name=archivo.nombre_original
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/device-info', methods=['GET'])
 def device_info():
     """Obtener información del dispositivo conectado"""
