@@ -243,6 +243,61 @@ def extract_calls_only():
             'error': str(e)
         }), 500
 
+@app.route('/api/extract-whatsapp-backups', methods=['POST'])
+def extract_whatsapp_backups():
+    """
+    Endpoint para extraer backups de WhatsApp del dispositivo.
+    """
+    try:
+        data = request.get_json() if request.is_json else {}
+        metadata_extra = data.get('metadata', {})
+        carpeta_destino = data.get('carpeta_destino', Config.UPLOAD_FOLDER)
+        
+        # 1. Obtener info del dispositivo
+        extractor = AndroidFileExtractor(carpeta_destino=carpeta_destino)
+        try:
+            info_dispositivo = extractor.obtener_info_dispositivo()
+        except Exception as e:
+            return jsonify({'success': False, 'error': f"Error al conectar dispositivo: {str(e)}"}), 500
+            
+        # 2. Crear Evaluación en BD
+        evaluacion = EvaluacionService.crear_evaluacion(info_dispositivo, metadata_extra)
+        
+        # 3. Extraer backups de WhatsApp
+        resultado_backups = extractor.extraer_backups_whatsapp()
+        
+        # 4. Procesar backups descargados para guardarlos en BD con metadata de WhatsApp
+        archivos_procesados = []
+        if resultado_backups['backups_descargados'] > 0 and resultado_backups['carpeta_destino']:
+            for backup in resultado_backups['backups_encontrados']:
+                if 'ruta_local' in backup:
+                    try:
+                        # Usar el nuevo método que guarda la metadata específica de WhatsApp
+                        archivo_db = ArchivoService.procesar_backup_whatsapp(
+                            ruta_archivo=backup['ruta_local'],
+                            id_evaluacion=evaluacion.id,
+                            backup_info=backup
+                        )
+                        archivos_procesados.append(archivo_db.to_dict())
+                        print(f"✅ Backup guardado en BD: {backup['nombre']}")
+                    except Exception as e:
+                        print(f"❌ Error procesando backup {backup['nombre']}: {e}")
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'evaluacion': evaluacion.to_dict(),
+                'backups': resultado_backups,
+                'archivos_procesados': len(archivos_procesados)
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/scan', methods=['POST'])
 def scan_files():
     """Escanear archivos sin descargarlos"""

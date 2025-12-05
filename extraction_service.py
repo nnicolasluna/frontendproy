@@ -24,8 +24,22 @@ class AndroidFileExtractor:
         "videos": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".3gp"],
         "audio": [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma"],
         "documentos": [".pdf", ".doc", ".docx", ".txt", ".xls", ".xlsx", ".ppt", ".pptx"],
-        "otros": [".zip", ".rar", ".apk", ".json", ".xml"]
+        "otros": [".zip", ".rar", ".apk", ".json", ".xml"],
+        "whatsapp_backup": [".db", ".crypt12", ".crypt14", ".crypt15", ".key"]
     }
+    
+    # Rutas de backups de WhatsApp
+    RUTAS_WHATSAPP_BACKUP = [
+        # Ubicación legacy (Android 10 y anteriores)
+        "/storage/emulated/0/WhatsApp/Databases/",
+        "/storage/emulated/0/WhatsApp/Backups/",
+        # Nueva ubicación (Android 11+)
+        "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/",
+        "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Backups/",
+        # WhatsApp Business
+        "/storage/emulated/0/WhatsApp Business/Databases/",
+        "/storage/emulated/0/Android/media/com.whatsapp.w4b/WhatsApp Business/Databases/",
+    ]
     
     def __init__(self, carpeta_destino="archivos_descargados"):
         """
@@ -415,3 +429,160 @@ class AndroidFileExtractor:
         except Exception as e:
             print(f"❌ Error al extraer llamadas: {e}")
             return []
+
+    def extraer_backups_whatsapp(self):
+        """
+        Extrae los archivos de backup de WhatsApp del dispositivo Android.
+        
+        Busca en las ubicaciones conocidas de WhatsApp tanto para la versión
+        normal como para WhatsApp Business, incluyendo las nuevas rutas de
+        Android 11+.
+        
+        Returns:
+            Diccionario con:
+                - backups_encontrados: Lista de backups encontrados con metadata
+                - backups_descargados: Cantidad de backups descargados exitosamente
+                - backups_fallidos: Cantidad de backups que fallaron al descargar
+                - carpeta_destino: Ruta absoluta donde se guardaron los backups
+        """
+        if not self.device:
+            self.conectar_dispositivo()
+        
+        # Extensiones de backup de WhatsApp
+        extensiones_backup = self.EXTENSIONES.get("whatsapp_backup", [".db", ".crypt12", ".crypt14", ".crypt15", ".key"])
+        
+        # Buscar archivos de backup
+        backups_encontrados = []
+        
+        print("🔍 Buscando backups de WhatsApp...")
+        
+        for ruta in self.RUTAS_WHATSAPP_BACKUP:
+            try:
+                # Verificar si la ruta existe
+                check_cmd = f'ls -la "{ruta}" 2>/dev/null'
+                resultado = self.device.shell(check_cmd)
+                
+                if "No such file" in resultado or not resultado.strip():
+                    continue
+                
+                print(f"📂 Escaneando: {ruta}")
+                
+                # Listar archivos con detalles
+                contenido = resultado.splitlines()
+                
+                for linea in contenido:
+                    partes = linea.split()
+                    if len(partes) < 8:
+                        continue
+                    
+                    permisos = partes[0]
+                    if not permisos.startswith('-'):
+                        continue  # Solo archivos, no directorios
+                    
+                    tamano = partes[4]
+                    fecha = partes[5]
+                    hora = partes[6]
+                    nombre = " ".join(partes[7:])
+                    
+                    # Verificar si es un archivo de backup
+                    es_backup = any(nombre.lower().endswith(ext) for ext in extensiones_backup)
+                    
+                    # También incluir msgstore (base de datos principal de mensajes)
+                    es_msgstore = "msgstore" in nombre.lower() or "wa.db" in nombre.lower()
+                    
+                    if es_backup or es_msgstore:
+                        ruta_completa = os.path.join(ruta, nombre).replace("\\", "/")
+                        
+                        try:
+                            tamano_bytes = int(tamano.replace(',', ''))
+                        except:
+                            tamano_bytes = 0
+                        
+                        # Determinar tipo de backup
+                        tipo_backup = "desconocido"
+                        if ".crypt15" in nombre.lower():
+                            tipo_backup = "crypt15 (Android 12+)"
+                        elif ".crypt14" in nombre.lower():
+                            tipo_backup = "crypt14 (Android 10-11)"
+                        elif ".crypt12" in nombre.lower():
+                            tipo_backup = "crypt12 (legacy)"
+                        elif ".key" in nombre.lower():
+                            tipo_backup = "key (clave de encriptación)"
+                        elif ".db" in nombre.lower():
+                            tipo_backup = "database"
+                        
+                        # Determinar app de origen
+                        app_origen = "WhatsApp"
+                        if "w4b" in ruta.lower() or "business" in ruta.lower():
+                            app_origen = "WhatsApp Business"
+                        
+                        backups_encontrados.append({
+                            "ruta": ruta_completa,
+                            "nombre": nombre,
+                            "tamano": tamano_bytes,
+                            "fecha": f"{fecha} {hora}",
+                            "tipo_backup": tipo_backup,
+                            "app_origen": app_origen
+                        })
+                        
+            except Exception as e:
+                print(f"⚠️ Error escaneando {ruta}: {e}")
+                continue
+        
+        if not backups_encontrados:
+            print("❌ No se encontraron backups de WhatsApp")
+            return {
+                "backups_encontrados": [],
+                "backups_descargados": 0,
+                "backups_fallidos": 0,
+                "carpeta_destino": None
+            }
+        
+        print(f"\n✅ Se encontraron {len(backups_encontrados)} archivos de backup")
+        
+        # Crear subcarpeta para backups de WhatsApp
+        carpeta_whatsapp = os.path.join(self.carpeta_destino, "whatsapp_backups")
+        os.makedirs(carpeta_whatsapp, exist_ok=True)
+        
+        # Descargar backups
+        backups_descargados = 0
+        backups_fallidos = 0
+        
+        print(f"\n{'='*50}")
+        print("Descargando backups de WhatsApp...")
+        print(f"{'='*50}\n")
+        
+        for i, backup in enumerate(backups_encontrados, 1):
+            try:
+                nombre_archivo = backup['nombre']
+                # Agregar prefijo según app de origen
+                prefijo = "wa_" if backup['app_origen'] == "WhatsApp" else "wab_"
+                destino = os.path.join(carpeta_whatsapp, f"{prefijo}{nombre_archivo}")
+                
+                # Evitar sobrescribir
+                contador = 1
+                nombre_base, extension = os.path.splitext(destino)
+                while os.path.exists(destino):
+                    destino = f"{nombre_base}_{contador}{extension}"
+                    contador += 1
+                
+                self.device.sync.pull(backup['ruta'], destino)
+                backup['ruta_local'] = destino
+                print(f"📥 [{i}/{len(backups_encontrados)}] ✓ {nombre_archivo} ({backup['tipo_backup']})")
+                backups_descargados += 1
+                
+            except Exception as e:
+                print(f"❌ [{i}/{len(backups_encontrados)}] Error: {backup['nombre']} - {e}")
+                backups_fallidos += 1
+        
+        print(f"\n{'='*50}")
+        print(f"🎉 Descarga de backups completada!")
+        print(f"📁 Backups guardados en: {os.path.abspath(carpeta_whatsapp)}")
+        print(f"{'='*50}")
+        
+        return {
+            "backups_encontrados": backups_encontrados,
+            "backups_descargados": backups_descargados,
+            "backups_fallidos": backups_fallidos,
+            "carpeta_destino": os.path.abspath(carpeta_whatsapp)
+        }
