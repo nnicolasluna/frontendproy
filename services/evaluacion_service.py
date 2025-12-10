@@ -1,4 +1,4 @@
-from models import Evaluacion, Archivo, Llamada
+from models.models import Evaluacion, Archivo, Llamada
 from database import db
 from datetime import datetime
 import io

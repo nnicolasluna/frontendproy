@@ -1,12 +1,13 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
-from extraction_service import AndroidFileExtractor
+from services.extraction_service import AndroidFileExtractor
 from config import Config
 from database import init_db
 from services.evaluacion_service import EvaluacionService
 from services.archivo_service import ArchivoService
 from services.llamada_service import LlamadaService
+
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -152,7 +153,7 @@ def serve_file(file_id):
     """Servir un archivo por su ID para previsualización"""
     try:
         from flask import send_file
-        from models import Archivo
+        from models.models import Archivo
         
         archivo = Archivo.query.get(file_id)
         if not archivo:

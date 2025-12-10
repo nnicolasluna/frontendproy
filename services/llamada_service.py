@@ -1,4 +1,4 @@
-from models import Llamada
+from models.models import Llamada
 from database import db
 from datetime import datetime
 

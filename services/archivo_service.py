@@ -1,6 +1,6 @@
 import os
 import shutil
-from models import Archivo
+from models.models import Archivo
 from database import db
 from utils.metadata_extractor import MetadataExtractor
 from config import Config

@@ -1,4 +1,4 @@
-from extraction_service import AndroidFileExtractor
+from services.extraction_service import AndroidFileExtractor
 import sys
 
 # Mocking adbutils to avoid connection errors during test
