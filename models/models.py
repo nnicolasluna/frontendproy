@@ -2,6 +2,30 @@ from datetime import datetime
 from sqlalchemy.dialects.postgresql import JSONB
 from database import db
 
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128))
+    nombre_completo = db.Column(db.String(100))
+    activo = db.Column(db.Boolean, default=True)
+    es_admin = db.Column(db.Boolean, default=False)
+    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_modificacion = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'nombre_completo': self.nombre_completo,
+            'activo': self.activo,
+            'es_admin': self.es_admin,
+            'fecha_creacion': self.fecha_creacion.isoformat()
+        }
+
 class Evaluacion(db.Model):
     __tablename__ = 'evaluaciones'
     

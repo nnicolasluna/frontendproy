@@ -18,3 +18,10 @@ class Config:
     # Upload Configuration
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'archivos_descargados')
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB
+
+    # JWT Configuration
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'dev_secret_key_change_in_production')
+    JWT_TOKEN_LOCATION = ['headers', 'query_string']
+    JWT_HEADER_NAME = 'Authorization'
+    JWT_HEADER_TYPE = 'Bearer'
+    # JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1 hora (variable por defecto de flask-jwt-extended)

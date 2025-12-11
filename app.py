@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, get_jwt
 import os
 from services.extraction_service import AndroidFileExtractor
 from config import Config
@@ -7,11 +8,14 @@ from database import init_db
 from services.evaluacion_service import EvaluacionService
 from services.archivo_service import ArchivoService
 from services.llamada_service import LlamadaService
+from services.auth_service import AuthService
+from services.user_service import UserService
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
 CORS(app)
+jwt = JWTManager(app)
 
 # Inicializar base de datos
 with app.app_context():
@@ -28,7 +32,118 @@ def health_check():
         'service': 'Android File Extraction Service with PostgreSQL'
     }), 200
 
+# Auth Endpoints
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': 'Faltan credenciales'}), 400
+            
+        user = AuthService.authenticate_user(username, password)
+        if not user:
+            return jsonify({'success': False, 'error': 'Credenciales inválidas o usuario inactivo'}), 401
+            
+        tokens = AuthService.create_tokens(user)
+        return jsonify({
+            'success': True, 
+            'data': tokens
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    # Este endpoint debería estar protegido o deshabilitado en prod si solo admin crea usuarios
+    # Por ahora lo dejamos abierto para facilidad de pruebas iniciales o protegido?
+    # Vamos a dejarlo abierto por ahora como setup inicial pero lo ideal es que sea protegido.
+    # Usemos UserService.crear_usuario
+    try:
+        data = request.get_json()
+        user = UserService.crear_usuario(
+            username=data.get('username'),
+            email=data.get('email'),
+            password=data.get('password'),
+            nombre_completo=data.get('nombre_completo')
+        )
+        return jsonify({'success': True, 'message': 'Usuario creado exitosamente'}), 201
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/auth/me', methods=['GET'])
+@jwt_required()
+def get_current_user_profile():
+    current_user_id = get_jwt_identity()
+    user = UserService.obtener_usuario(current_user_id)
+    if not user:
+        return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
+    return jsonify({'success': True, 'data': user.to_dict()}), 200
+
+# User Management Endpoints
+@app.route('/api/users', methods=['GET'])
+@jwt_required()
+def list_users():
+    try:
+        users = UserService.listar_usuarios()
+        return jsonify({'success': True, 'data': [u.to_dict() for u in users]}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/users', methods=['POST'])
+@jwt_required()
+def create_user_admin():
+    try:
+        # Verificar si es admin (opcional, por ahora cualquier usuario autenticado)
+        data = request.get_json()
+        user = UserService.crear_usuario(
+            username=data.get('username'),
+            email=data.get('email'),
+            password=data.get('password'),
+            nombre_completo=data.get('nombre_completo'),
+            es_admin=data.get('es_admin', False)
+        )
+        return jsonify({'success': True, 'data': user.to_dict()}), 201
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+@jwt_required()
+def get_user(user_id):
+    try:
+        user = UserService.obtener_usuario(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
+        return jsonify({'success': True, 'data': user.to_dict()}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@jwt_required()
+def update_user(user_id):
+    try:
+        data = request.get_json()
+        user = UserService.actualizar_usuario(user_id, data)
+        return jsonify({'success': True, 'data': user.to_dict()}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user(user_id):
+    try:
+        UserService.eliminar_usuario(user_id)
+        return jsonify({'success': True, 'message': 'Usuario eliminado'}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# Existing Endpoints (Protected)
+
 @app.route('/api/extract', methods=['POST'])
+@jwt_required()
 def extract_files():
     """
     Endpoint para extraer archivos y generar una evaluación.
@@ -100,6 +215,7 @@ def extract_files():
         }), 500
 
 @app.route('/api/evaluaciones', methods=['GET'])
+@jwt_required()
 def listar_evaluaciones():
     """Listar todas las evaluaciones"""
     try:
@@ -112,6 +228,7 @@ def listar_evaluaciones():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/evaluaciones/<int:id>', methods=['GET'])
+@jwt_required()
 def obtener_evaluacion(id):
     """Obtener detalle de una evaluación con sus archivos"""
     try:
@@ -131,6 +248,7 @@ def obtener_evaluacion(id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/evaluaciones/<int:id>/pdf', methods=['GET'])
+@jwt_required()
 def descargar_pdf_evaluacion(id):
     """Generar y descargar PDF de una evaluación"""
     try:
@@ -149,6 +267,7 @@ def descargar_pdf_evaluacion(id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/files/<int:file_id>', methods=['GET'])
+@jwt_required()
 def serve_file(file_id):
     """Servir un archivo por su ID para previsualización"""
     try:
@@ -182,6 +301,7 @@ def serve_file(file_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/device-info', methods=['GET'])
+@jwt_required()
 def device_info():
     """Obtener información del dispositivo conectado"""
     try:
@@ -200,6 +320,7 @@ def device_info():
         }), 500
 
 @app.route('/api/extract-calls', methods=['POST'])
+@jwt_required()
 def extract_calls_only():
     """
     Endpoint para extraer solo llamadas sin descargar archivos.
@@ -245,6 +366,7 @@ def extract_calls_only():
         }), 500
 
 @app.route('/api/extract-whatsapp-backups', methods=['POST'])
+@jwt_required()
 def extract_whatsapp_backups():
     """
     Endpoint para extraer backups de WhatsApp del dispositivo.
@@ -300,6 +422,7 @@ def extract_whatsapp_backups():
         }), 500
 
 @app.route('/api/scan', methods=['POST'])
+@jwt_required()
 def scan_files():
     """Escanear archivos sin descargarlos"""
     try:
